@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Video Analyzer</title>
+</head>
+<body>
+    <h1>Upload Video</h1>
+    <input type="file" id="videoUpload" accept="video/*">
+    <button onclick="uploadVideo()">Upload Video File</button>
+    <div id="videoStatus"></div>
+    <div id="videoAnalysisResults"></div>
+
+    <h1>Upload Text File</h1>
+    <input type="file" id="textUpload" accept="text/plain">
+    <button onclick="uploadTextFile()">Upload Text File</button>
+    <div id="textStatusFile"></div>
+
+    <h1>Enter Text Directly</h1>
+    <textarea id="textInput" rows="4" cols="50"></textarea><br>
+    <button onclick="uploadTextDirect()">Submit Text</button>
+    <div id="textStatusDirect"></div>
+    <div id="textAnalysisResults"></div>
+
+    <script>
+        async function uploadVideo() {
+            const fileInput = document.getElementById('videoUpload');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert('Please select a video file.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('video', file);
+
+            try {
+                const response = await fetch('http://localhost:3000/upload/video', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const data = await response.text();
+                document.getElementById('videoStatus').textContent = data;
+                const filename = file.name;
+                processVideo(`uploads/${Date.now() + '-' + filename}`);
+            } catch (error) {
+                console.error('Error uploading video:', error);
+                document.getElementById('videoStatus').textContent = 'Error uploading video.';
+            }
+        }
+
+        async function processVideo(videoPath) {
+            try {
+                const response = await fetch('http://localhost:3000/process/video', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({videoPath: videoPath})
+                });
+                await response.text();
+                const analysisResponse = await fetch(`http://localhost:3000/analysis/video/${videoPath}`);
+                const analysisData = await analysisResponse.json();
+                displayVideoAnalysis(analysisData);
+            } catch (error) {
+                console.error('Error processing video:', error);
+            }
+        }
+
+        function displayVideoAnalysis(analysisData) {
+            const resultsDiv = document.getElementById('videoAnalysisResults');
+            resultsDiv.innerHTML = '';
+            if (analysisData && analysisData.frames) {
+                analysisData.frames.forEach((frame, index) => {
+                    const frameDiv = document.createElement('div');
+                    frameDiv.innerHTML = `<h3>Frame ${index + 1}</h3>`;
+                    const img = document.createElement('img');
+                    img.src = `/frames/frame_${index}.jpg`;
+                    img.alt = `Frame ${index + 1}`;
+                    img.onerror = () => {
+                        frameDiv.innerHTML += "<p>Frame not available</p>"
+                    }
+                    frameDiv.appendChild(img);
+                    resultsDiv.appendChild(frameDiv);
+                });
+            } else {
+                resultsDiv.textContent = 'No analysis data available.';
+            }
+        }
+        async function uploadTextFile() {
+        const fileInput = document.getElementById('textUpload');
+        const file = fileInput.files[0];
+
+        if (!file) {
+            alert('Please select a text file.');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('text', file);
+
+        try {
+            const response = await fetch('http://localhost:3000/upload/text', {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await response.text();
+            document.getElementById('textStatusFile').textContent = data;
+            const filename = file.name;
+            processText(`uploads/${Date.now() + '-' + filename}`);
+        } catch (error) {
+            console.error('Error uploading text:', error);
+            document.getElementById('textStatusFile').textContent = 'Error uploading text.';
+        }
+    }
+
+    async function uploadTextDirect() {
+        const text = document.getElementById('textInput').value;
+        if (!text) {
+            alert('Please enter some text.');
+            return;
+        }
+
+        try {
+            const response = await fetch('http://localhost:3000/upload/text/direct', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'text/plain'
+                },
+                body: text
+            });
+            const data = await response.text();
+            document.getElementById('textStatusDirect').textContent = data;
+            processText(`uploads/text_${Date.now()}.txt`);
+        } catch (error) {
+            console.error('Error submitting text:', error);
+            document.getElementById('textStatusDirect').textContent = 'Error submitting text.';
+        }
+    }
+
+    async function processText(textPath) {
+        try {
+            const response = await fetch('http://localhost:3000/process/text', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({textPath: textPath})
+            });
+            await response.text();
+            const analysisResponse = await fetch(`http://localhost:3000/analysis/text/${textPath}`);
+            const analysisData = await analysisResponse.json();
+            displayTextAnalysis(analysisData);
+        } catch (error) {
+            console.error('Error processing text:', error);
+        }
+    }
+
+    function displayTextAnalysis(analysisData) {
+        const resultsDiv = document.getElementById('textAnalysisResults');
+        resultsDiv.innerHTML = '';
+        if (analysisData) {
+            resultsDiv.innerHTML += `<p>Word Count: ${analysisData.word_count}</p>`;
+            resultsDiv.innerHTML += `<h3>Top Words:</h3><ul>`;
+            if(analysisData.top_words){
+                analysisData.top_words.forEach(word => {
+                    resultsDiv.innerHTML += `<li>${word[0]}: ${word[1]}</li>`;
+                });
+            }
+            resultsDiv.innerHTML += `</ul>`;
+        } else {
+            resultsDiv.textContent = 'No analysis data available.';
+        }
+    }
+    async function storeAnalysisResult(filePath, analysisType, analysisData) {
+    console.log("Entering storeAnalysisResult");
+    console.log("File Path:", filePath);
+    console.log("Analysis Type:", analysisType);
+    console.log("Analysis Data:", analysisData);
+    try {
+        const client = await pool.connect();
+        console.log("Database connection successful");
+        let query;
+        let dataColumn;
+
+        if (analysisType === 'video') {
+            query = `
+                INSERT INTO analysis_results (file_path, analysis_type, frame_data)
+                VALUES ($1, $2, $3::jsonb)
+                ON CONFLICT (file_path) DO UPDATE SET frame_data = $3::jsonb, created_at = DEFAULT;
+            `;
+            dataColumn = 'frame_data';
+        } else if (analysisType === 'text') {
+            query = `
+                INSERT INTO analysis_results (file_path, analysis_type, text_data)
+                VALUES ($1, $2, $3::jsonb)
+                ON CONFLICT (file_path) DO UPDATE SET text_data = $3::jsonb, created_at = DEFAULT;
+            `;
+            dataColumn = 'text_data';
+        } else {
+            console.error("Invalid analysis type:", analysisType);
+            return; // Important: Exit if analysis type is invalid
+        }
+        console.log("Query:", query);
+        console.log("Query Values:", [filePath, analysisType, analysisData]);
+        await client.query(query, [filePath, analysisType, analysisData]);
+        client.release();
+        console.log("Analysis results stored in database.");
+    } catch (error) {
+        console.error("Error storing analysis results:", error);
+    }
+    console.log("Exiting storeAnalysisResult");
+}
+
+        // ... (rest of the JavaScript code: uploadTextFile, uploadTextDirect, displayTextAnalysis)
+    </script>
+</body>
+</html>
